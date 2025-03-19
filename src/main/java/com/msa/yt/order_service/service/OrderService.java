@@ -2,22 +2,32 @@ package com.msa.yt.order_service.service;
 
 import com.msa.yt.order_service.client.InventoryClient;
 import com.msa.yt.order_service.dto.OrderRequest;
+import com.msa.yt.order_service.event.OrderPlacedEvent;
 import com.msa.yt.order_service.model.Order;
 import com.msa.yt.order_service.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
 
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+//@Slf4j
 @Service
 //@RequiredArgsConstructor
 public class OrderService {
     private final OrderRepository orderRepository;
     private final InventoryClient inventoryClient;
+    private final KafkaTemplate<String, OrderPlacedEvent> kafkaTemplate;
+    private static final Logger log = LoggerFactory.getLogger(OrderService.class);
 
-    public OrderService(OrderRepository orderRepository, InventoryClient inventoryClient) {
+    public OrderService(OrderRepository orderRepository, InventoryClient inventoryClient, KafkaTemplate<String, OrderPlacedEvent> kafkaTemplate) {
         this.orderRepository = orderRepository;
         this.inventoryClient = inventoryClient;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     public void placeOrder(OrderRequest orderRequest) {
@@ -34,6 +44,13 @@ public class OrderService {
             order.setQuantity(orderRequest.quantity());
             // save order to OrderRepository
             orderRepository.save(order);
+
+            // Send the message to Kafka topic
+            OrderPlacedEvent orderPlacedEvent = new OrderPlacedEvent(order.getOrderNumber(), orderRequest.userDetails().email());
+            log.info("Start - Sending OrderPlacedEvent {} to Kafka topic order-placed", orderPlacedEvent);
+            kafkaTemplate.send("order-placed", orderPlacedEvent);
+            log.info("End - Sending OrderPlacedEvent {} to Kafka topic order-placed", orderPlacedEvent);
+            // orderNumber, email ---> Email
         }else {
             throw new RuntimeException("Product with SkuCode "+ orderRequest.skuCode() + " is not in stock");
         }
